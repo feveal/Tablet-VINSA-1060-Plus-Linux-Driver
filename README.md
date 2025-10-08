@@ -1,5 +1,5 @@
  
-# Linux Driver for VINSA 1060 Plus Drawing Tablet
+# Linux Driver for VINSA 1060 Plus Drawing Tablet (V2)
 
 Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: 08f2:6811
 
@@ -8,7 +8,8 @@ The [marvinbelfort](https://github.com/marvinbelfort/mx002_linux_driver) driver 
 - The "B" button toggles between Mouse/Tablet modes.
 - The "[" and "]" buttons expand and contract the working area in mouse mode.
 
-## ✨ Features
+## ✨ Features V2
+-  Fixed issue where entering the top media area would cause the cursor to jump to the bottom of the screen.
 -  Full pressure support (8192 levels)
 -  Adjustable sensitivity settings
 -  Mouse/Tablet mode toggle (B button)
