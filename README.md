@@ -9,7 +9,7 @@ The [marvinbelfort](https://github.com/marvinbelfort/mx002_linux_driver) driver 
 - The "[" and "]" buttons expand and contract the working area in mouse mode.
 
 ## ✨ Features V2
--  Fixed issue where entering the top media area would cause the cursor to jump to the bottom of the screen.
+-  Fixed issue where entering the top media area would cause the cursor jump to the bottom screen.
 -  Full pressure support (8192 levels)
 -  Adjustable sensitivity settings
 -  Mouse/Tablet mode toggle (B button)
