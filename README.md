@@ -2,6 +2,7 @@
 # Linux Driver for VINSA 1060 Plus Drawing Tablet (V2)
 
 Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: 08f2:6811
+(It would be interesting if someone has a Huion H1060p tablet and can test the driver to see if it works.)
 
 The [marvinbelfort](https://github.com/marvinbelfort/mx002_linux_driver) driver has been adapted and expanded for this graphics tablet, improving sensitivity and providing two modes of use: one mouse-like, which uses a smaller area of ​​the tablet and is also customizable according to preferences, and another tablet-like mode, which occupies the entire area and offers greater sensitivity for artistic drawing imitating the Windows driver.
 - Although the multimedia area is now detected, these buttons are not configured because they are not considered necessary and may cause unwanted activations.
