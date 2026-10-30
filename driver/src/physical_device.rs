@@ -23,17 +23,25 @@ impl PhysicalDevice {
     }
 
     pub fn init(&mut self) -> &mut Self {
-        self.device_handle
-            .set_auto_detach_kernel_driver(true)
-            .expect("Error detaching old driver.");
+        // Activar el desenganche automático
+        let _ = self.device_handle.set_auto_detach_kernel_driver(true);
 
         let configurations = Self::get_configurations(&self.device);
         let interface_descriptors = Self::get_hid_interface_descriptors(&configurations);
 
         for interface_descriptor in interface_descriptors {
+            let iface_num = interface_descriptor.interface_number();
+
+            // Forzar al Kernel a soltar la interfaz si la tiene ocupada
+            if let Ok(true) = self.device_handle.kernel_driver_active(iface_num) {
+                let _ = self.device_handle.detach_kernel_driver(iface_num);
+            }
+
+            // Reclamar la interfaz de forma segura
             self.device_handle
-                .claim_interface(interface_descriptor.interface_number())
+                .claim_interface(iface_num)
                 .expect("Error claiming interface.");
+
             for endpoint_descriptor in interface_descriptor.endpoint_descriptors() {
                 if endpoint_descriptor.transfer_type() == TransferType::Interrupt
                     && endpoint_descriptor.max_packet_size() == 64
@@ -51,8 +59,9 @@ impl PhysicalDevice {
     }
 
     pub fn read_device_responses(&self, buffer: &mut [u8]) -> Result<usize, RusbError> {
+        // Cambiado a Duration::ZERO para lectura no bloqueante
         self.device_handle
-            .read_interrupt(self.endpoint_address, buffer, Duration::from_secs(3))
+            .read_interrupt(self.endpoint_address, buffer, Duration::ZERO)
     }
 
     pub fn set_full_mode(&mut self) -> &mut Self {
@@ -92,9 +101,10 @@ impl PhysicalDevice {
             None => Err(RusbError::NoDevice),
         }
     }
+
     fn get_hid_interface_descriptors(
         config_descriptors: &[ConfigDescriptor],
-    ) -> Vec<InterfaceDescriptor> {
+    ) -> Vec<InterfaceDescriptor<'_>> {
         config_descriptors
             .iter()
             .flat_map(|config_descriptor| config_descriptor.interfaces())

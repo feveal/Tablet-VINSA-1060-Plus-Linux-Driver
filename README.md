@@ -1,61 +1,123 @@
- 
-# Linux Driver for VINSA 1060 Plus Drawing Tablet (V2)
+# Linux Driver for VINSA 1060 Plus Drawing Tablet (V5 Cooperativo Wayland)
 
-Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: 08f2:6811
+Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: `08f2:6811`
 
-_(It would be interesting if someone has a Huion H1060p tablet and can test the driver to see if it works.)_
+## 🚀 Complete Code Modification for Wayland (V5)
 
-The [marvinbelfort](https://github.com/marvinbelfort/mx002_linux_driver) driver has been adapted and expanded for this graphics tablet, improving sensitivity and providing two modes of use: one mouse-like, which uses a smaller area of ​​the tablet and is also customizable according to preferences, and another tablet-like mode, which occupies the entire area and offers greater sensitivity for artistic drawing imitating the Windows driver.
-- Although the multimedia area is now detected, these buttons are not configured because they are not considered necessary and may cause unwanted activations.
+- **Wayland Native Architecture**: Modified and optimized for **Kubuntu 26.04** running under Wayland (KWin / Libinput). It exposes three independent virtual devices (`uinput`) to avoid compositor interpretation issues.
+- **System Tray Icon Integration**: Added an icon to the taskbar to indicate when the driver is active. This icon dynamically shifts (Mouse 🖱️ / Tablet 🎨) depending on the internal driver state.
+- **Krita Cursor Fix**: Uses a standardized device name prefix (`Wacom...`) to force Libinput to treat the virtual injector as a real `TABLET_TOOL` digitalizer, enabling the brush circle and pressure levels in any system language.
+- **Multi-language Hotkeys**: Integrates `xkbcommon` to detect the system layout at runtime. It automatically bundles an atomic burst of events with `Alt Gr` (`KEY_RIGHTALT`) if the system is in Spanish to type `[` and `]` correctly, skipping it seamlessly if the system is in English.
+- **Anti-USB Flood Filtering**: Implemented an absolute event rejection filter to drop consecutive identical coordinate packets, dropping CPU overhead down to 0% in applications like Google Chrome.
+- **Taskbar Control**: Right-clicking the taskbar icon displays a contextual menu to exit the driver cleanly.
 
-- The "B" button toggles between Mouse/Tablet modes.
-- The "[" and "]" buttons expand and contract the working area in mouse mode.
+## ✨ Features
+- Fixed issue where entering the top media area would cause the cursor jump to the bottom screen.
+- Full pressure support (8192 levels).
+- Adjustable relative mouse speed scaling.
+- Mouse/Tablet mode toggle via hardware button.
+- Custom desktop launcher integration.
 
-## ✨ Features V2
--  Fixed issue where entering the top media area would cause the cursor jump to the bottom screen.
--  Full pressure support (8192 levels)
--  Adjustable sensitivity settings
--  Mouse/Tablet mode toggle (B button)
--  Dynamically adjustable work area ([ ] buttons)
--  All programmable buttons
--  No sudo required (udev rules included)
--  Desktop launcher with custom icon
+### Buttons mapping
+<table>
+  <tr>
+    <td>
+      <img src="driver/resources/botones.png" width="200">
+    </td>
+    <td>
+      <ul>.
+        <br></br>
+        <li><strong>Button E:</strong> Erase</li>
+        <li><strong>Button B:</strong> Toogle Mode (Mouse/Tablet)</li>
+        <br></br>
+        <li><strong>Button CTRL - :</strong> = Zoom out</li>
+        <li><strong>Button CTRL + :</strong> Zoom in</li>
+        <br></br>
+        <li><strong>Tablet Mode</li>
+        <li style="margin-left: 25px;"><strong>Button [ :</strong> Decrease brush size</li>
+        <li style="margin-left: 25px;"><strong>Button ] :</strong> Increase brush size</li>
+        <br></br>
+        <li><strong>Mouse Mode</li>
+        <li style="margin-left: 25px;"><strong>Button [ :</strong> Decrease speed mouse</li>
+        <li style="margin-left: 25px;"><strong>Button ] :</strong> Increase speed mouse</li>
+        <br></br>
+        <li><strong>Mouse up:</strong> Scroll up</li>
+        <li><strong>TAB:</strong> Toggle full screen</li>
+        <br></br>
+        <li><strong>Mouse down:</strong> Scroll down</li>
+        <li><strong>SPACE:</strong> Space (Pan)</li>
+        <br></br>
+        <li><strong>CTRL:</strong> CTRL</li>
+        <li><strong>ALT:</strong> ALT</li>
+        <br></br>
+      </ul>
+    </td>
+  </tr>
+</table>
 
-![Buttons help](https://github.com/feveal/Tablet-VINSA-1060-Plus-Linux-Driver/blob/main/driver/launcher/help/v1060p.png)
+---
 
-## 📦 Installation
-You need to have Rust installed previously.
+## 🛠️ System Requirements
+
+Before compiling, you need to install the required system libraries for **GTK3 interface loop**, **SVG rendering libraries**, and **XKB layout layout context engine**:
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/vinsa-1060-driver.git
-cd vinsa-1060-driver
-
-# Build the driver
-cargo build --release
-
-# For Install udev rules (no sudo needed)
-# Create the file 99-vinsa-tablet.rules
-sudo nano /etc/udev/rules.d/99-vinsa-tablet.rules
-
-#  and copy this into it
-SUBSYSTEM=="usb", ATTR{idVendor}=="08f2", ATTR{idProduct}=="6811", MODE="0666"
-SUBSYSTEM=="input", GROUP="input", MODE="0666"
-KERNEL=="uinput", MODE="0666", GROUP="input"
-
-# Reload rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-
-# Make driver executable
-chmod +x target/release/v1060p
-
-# In the file VINSA 1060 Plus Tablet.desktop launcher,
-change the path where the "v1060p" driver file was placed.
+sudo apt update
+sudo apt install libxkbcommon-dev libgtk-3-dev pkg-config build-essential
 ```
 
+---
+
+## 📦 Installation
+
+Make sure you have the Rust toolchain installed on your computer.
+
+### 1. Clone & Build
+```bash
+# Clone the repository
+git clone https://github.com
+cd vinsa-1060-driver/driver
+
+# Build the driver binary in release mode
+cargo build --release
+```
+
+### 2. Configure Udev Rules (Crucial for Non-Sudo execution)
+To be able to run the driver as a standard desktop user without root access, create the local rule file:
+
+```bash
+sudo nano /etc/udev/rules.d/99-vinsa-tablet.rules
+```
+
+Paste the following content inside:
+
+```udev
+# VINSA USB Interface permission
+SUBSYSTEM=="usb", ATTR{idVendor}=="08f2", ATTR{idProduct}=="6811", MODE="0666"
+# Input subsystem permissions
+SUBSYSTEM=="input", GROUP="input", MODE="0666"
+# Virtual Device injector permission
+KERNEL=="uinput", MODE="0666", GROUP="input"
+```
+
+Reload the system configurations to apply:
+
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+### 3. Setup Desktop Launcher
+Give execution privileges to the compiled binary file:
+```bash
+chmod +x driver/target/release/v1060p
+```
+
+Open the `VINSA 1060 Plus Tablet.desktop` file with any text editor and change the `Exec=` and `Icon=` absolute paths to point to your local installation directory. Place it on your Desktop to run it manually on-demand.
+
+---
 
 ## References
-- [marvinbelfort](https://github.com/marvinbelfort) - Initial research
-- [DIGImend/10moons-tools](https://github.com/DIGImend/10moons-tools) - Expanded mode enablement
-- [alex-s-v/10moons-driver](https://github.com/alex-s-v/10moons-driver) - User-space driver approach
+- [marvinbelfort](https://github.com) - Initial research
+- [DIGImend/10moons-tools](https://github.com) - Expanded mode enablement
+- [alex-s-v/10moons-driver](https://github.com) - User-space driver approach

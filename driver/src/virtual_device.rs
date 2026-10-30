@@ -1,10 +1,11 @@
-// VINSA 1060 Plus Linux Driver (V2), (by feveal@hotmail.com)
+// VINSA 1060 Plus Linux Driver - src/virtual_device.rs
 use std::io::Error;
 use std::collections::HashMap;
+use xkbcommon::xkb;
 
 use evdev::{
     uinput::{VirtualDevice, VirtualDeviceBuilder},
-    AbsInfo, AbsoluteAxisType, AttributeSet, EventType, InputEvent, Key, Synchronization,
+    AbsInfo, AbsoluteAxisType, RelativeAxisType, AttributeSet, EventType, InputEvent, Key, Synchronization,
     UinputAbsSetup,
 };
 
@@ -34,17 +35,17 @@ impl RawDataReader {
         (high as u16) << 8 | low as u16
     }
 
-    fn x_axis(&self) -> i32 {
+    pub fn x_axis(&self) -> i32 {
         let raw = self.u16_from_2_u8(self.data[Self::X_AXIS_HIGH], self.data[Self::X_AXIS_LOW]);
         raw as i32
     }
 
-    fn y_axis(&self) -> i32 {
+    pub fn y_axis(&self) -> i32 {
         let raw = self.u16_from_2_u8(self.data[Self::Y_AXIS_HIGH], self.data[Self::Y_AXIS_LOW]);
         raw as i32
     }
 
-    fn pressure(&self) -> i32 {
+    pub fn pressure(&self) -> i32 {
         self.u16_from_2_u8(
             self.data[Self::PRESSURE_HIGH],
             self.data[Self::PRESSURE_LOW],
@@ -67,15 +68,24 @@ pub struct DeviceDispatcher {
     tablet_last_raw_pressed_buttons: u16,
     pen_last_raw_pressed_button: u8,
     tablet_button_id_to_key_code_map: HashMap<u8, Vec<Key>>,
-    pen_button_id_to_key_code_map: HashMap<u8, Vec<Key>>,
+    _pen_button_id_to_key_code_map: HashMap<u8, Vec<Key>>,
+
+    // Tres dispositivos independientes para no confundir a Libinput/Wayland
     virtual_pen: VirtualDevice,
+    virtual_mouse: VirtualDevice,
     virtual_keyboard: VirtualDevice,
+
     was_touching: bool,
-    is_mouse_mode: bool,
+    pub is_mouse_mode: bool,
     last_x: i32,
     last_y: i32,
     last_valid_x: i32,
     mouse_area_scale: f32,
+
+    // Historial para control estricto de duplicados USB
+    last_raw_usb_x: i32,
+    last_raw_usb_y: i32,
+    last_raw_usb_pressure: i32,
 }
 
 impl Default for DeviceDispatcher {
@@ -91,113 +101,124 @@ impl DeviceDispatcher {
 
     pub fn new() -> Self {
         let default_tablet_button_id_to_key_code_map: HashMap<u8, Vec<Key>> = [
-            (0, vec![Key::KEY_TAB]),        // TAB
-            (1, vec![Key::KEY_SPACE]),      // SPACE
-            (2, vec![Key::KEY_LEFTALT]),    // ALT
+            // --- FILA 1 ---
+            (9, vec![Key::KEY_E]),          // "E" -> Borrador
+            (12, vec![Key::KEY_B]),         // "B" -> Conmutar Modo Tablet/Mouse
+
+            // --- FILA 2 ---
+            (7, vec![Key::KEY_LEFTCTRL, Key::KEY_KPMINUS]), // Zoom -
+            (8, vec![Key::KEY_LEFTCTRL, Key::KEY_KPPLUS]),  // Zoom +
+
+            // --- FILA 3 ---
+            (6, vec![Key::KEY_LEFTBRACE]),  // Tamaño Pincel -
+            (13, vec![Key::KEY_RIGHTBRACE]), // Tamaño Pincel +
+
+            // --- FILA 4 ---
+            (5, vec![Key::KEY_PAGEUP]),     // Scroll Arriba
+            (0, vec![Key::KEY_TAB]),        // TAB (Ocultar UI)
+
+            // --- FILA 5 ---
+            (4, vec![Key::KEY_PAGEDOWN]),   // Scroll Abajo
+            (1, vec![Key::KEY_SPACE]),      // SPACE (Mover lienzo)
+
+            // --- FILA 6 ---
             (3, vec![Key::KEY_LEFTCTRL]),   // CTRL
-            (4, vec![Key::KEY_PAGEUP]),     // MOUSE UP
-            (5, vec![Key::KEY_PAGEDOWN]),   // MOUSE DOWN
-            (6, vec![Key::KEY_LEFTBRACE]),  // MOUSE AREA -
-            (7, vec![Key::KEY_LEFTCTRL, Key::KEY_KPMINUS]), // CTRL- ZOOM
-            (8, vec![Key::KEY_LEFTCTRL, Key::KEY_KPPLUS]),  // CTRL+ ZOOM
-            (9, vec![Key::KEY_ESC]),        // ESC CANCEL
-            (12, vec![Key::KEY_B]),         // TOGGLE MOUSE/TABLET
-            (13, vec![Key::KEY_RIGHTBRACE]), // MOUSE AREA +
+            (2, vec![Key::KEY_LEFTALT]),    // ALT
         ]
         .iter()
         .cloned()
         .collect();
 
         let default_pen_button_id_to_key_code_map: HashMap<u8, Vec<Key>> =
-            [(4, vec![Key::BTN_STYLUS]), (6, vec![Key::BTN_STYLUS2])]
-                .iter()
-                .cloned()
-                .collect();
+        [(4, vec![Key::BTN_STYLUS]), (6, vec![Key::BTN_STYLUS2])]
+        .iter()
+        .cloned()
+        .collect();
+
+        let mut todas_las_teclas_teclado = AttributeSet::<Key>::new();
+        for keys in default_tablet_button_id_to_key_code_map.values() {
+            for key in keys {
+                todas_las_teclas_teclado.insert(*key);
+            }
+        }
+
+        // Registrar preventivamente los códigos físicos
+        todas_las_teclas_teclado.insert(Key::KEY_APOSTROPHE);
+        todas_las_teclas_teclado.insert(Key::KEY_BACKSLASH);
+        todas_las_teclas_teclado.insert(Key::KEY_RIGHTALT);
 
         DeviceDispatcher {
             tablet_last_raw_pressed_buttons: 0xFFFF,
             pen_last_raw_pressed_button: 0,
             tablet_button_id_to_key_code_map: default_tablet_button_id_to_key_code_map.clone(),
-            pen_button_id_to_key_code_map: default_pen_button_id_to_key_code_map.clone(),
-            virtual_pen: Self::virtual_pen_builder(
-                &default_pen_button_id_to_key_code_map
-                    .values()
-                    .flatten()
-                    .cloned()
-                    .collect::<Vec<Key>>(),
-            )
-            .expect("Error building virtual pen"),
-            virtual_keyboard: Self::virtual_keyboard_builder(
-                &default_tablet_button_id_to_key_code_map
-                    .values()
-                    .flatten()
-                    .cloned()
-                    .collect::<Vec<Key>>(),
-            )
-            .expect("Error building virtual keyboard"),
+            _pen_button_id_to_key_code_map: default_pen_button_id_to_key_code_map.clone(),
+
+            virtual_keyboard: Self::virtual_keyboard_builder(&todas_las_teclas_teclado).expect("Error virtual_keyboard"),
+            virtual_mouse: Self::virtual_mouse_builder().expect("Error virtual_mouse"),
+            virtual_pen: Self::virtual_pen_builder().expect("Error virtual_pen"),
             was_touching: false,
+
             is_mouse_mode: true,
             last_x: 2048,
             last_y: 2048,
-            mouse_area_scale: 0.3,
+
+            mouse_area_scale: 0.15,
+
             last_valid_x: 2048,
+            last_raw_usb_x: -1,
+            last_raw_usb_y: -1,
+            last_raw_usb_pressure: -1,
         }
     }
 
-    fn smooth_coordinates(&mut self, x: i32, y: i32) -> (i32, i32) {
-        let (smoothed_x, smoothed_y) = if self.is_mouse_mode {
-            ((self.last_x * 1 + x) / 2, (self.last_y * 1 + y) / 2)
-        } else {
-            ((self.last_x * 3 + x) / 4, (self.last_y * 3 + y) / 4)
-        };
 
-        self.last_x = smoothed_x;
-        self.last_y = smoothed_y;
 
-        (smoothed_x, smoothed_y)
-    }
 
     pub fn syn(&mut self) -> Result<(), Error> {
-        self.virtual_keyboard.emit(&[InputEvent::new(
-            EventType::SYNCHRONIZATION,
-            Synchronization::SYN_REPORT.0,
-            0,
-        )])?;
-        self.virtual_pen.emit(&[InputEvent::new(
-            EventType::SYNCHRONIZATION,
-            Synchronization::SYN_REPORT.0,
-            0,
-        )])?;
+        let _ = self.virtual_keyboard.emit(&[InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)]);
+        let _ = self.virtual_mouse.emit(&[InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)]);
+        let _ = self.virtual_pen.emit(&[InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)]);
         Ok(())
     }
 
     pub fn dispatch(&mut self, raw_data: &RawDataReader) {
+        let current_raw_x = raw_data.x_axis();
+        let current_raw_y = raw_data.y_axis();
+        let current_raw_pressure = raw_data.pressure();
+
+        // --- FILTRO DE DESCARTE ABSOLUTO ---
+        if current_raw_x == self.last_raw_usb_x
+            && current_raw_y == self.last_raw_usb_y
+            && current_raw_pressure == self.last_raw_usb_pressure
+            {
+                return;
+            }
+
+            self.last_raw_usb_x = current_raw_x;
+        self.last_raw_usb_y = current_raw_y;
+        self.last_raw_usb_pressure = current_raw_pressure;
+
         self.emit_pen_events(raw_data);
         self.emit_tablet_events(raw_data);
     }
 
     fn emit_tablet_events(&mut self, raw_data: &RawDataReader) {
         let raw_button_as_binary_flags = raw_data.tablet_buttons_as_binary_flags();
-        self.binary_flags_to_tablet_key_events(raw_button_as_binary_flags);
-        self.tablet_last_raw_pressed_buttons = raw_button_as_binary_flags;
-    }
-
-    fn virtual_keyboard_builder(tablet_emitted_keys: &[Key]) -> Result<VirtualDevice, Error> {
-        let mut key_set = AttributeSet::<Key>::new();
-        for key in tablet_emitted_keys {
-            key_set.insert(*key);
+        if raw_button_as_binary_flags != self.tablet_last_raw_pressed_buttons {
+            self.binary_flags_to_tablet_key_events(raw_button_as_binary_flags);
+            self.tablet_last_raw_pressed_buttons = raw_button_as_binary_flags;
         }
-
-        VirtualDeviceBuilder::new()?
-            .name("virtual_tablet")
-            .with_keys(&key_set)?
-            .build()
     }
 
     fn binary_flags_to_tablet_key_events(&mut self, raw_button_as_flags: u16) {
-        (0..14)
-            .filter(|i| ![10, 11].contains(i))
-            .for_each(|i| self.emit_tablet_key_event(i, raw_button_as_flags));
+        // Procesar todos los IDs del 0 al 13 de forma consecutiva
+        (0..14).for_each(|i| self.emit_tablet_key_event(i, raw_button_as_flags));
+    }
+
+
+    // Función para comprobar explícitamente el estado del modo tableta
+    pub fn is_tablet_mode(&self) -> bool {
+        !self.is_mouse_mode
     }
 
     pub fn emit_tablet_key_event(&mut self, i: u8, raw_button_as_flags: u16) {
@@ -208,172 +229,238 @@ impl DeviceDispatcher {
         if let Some(state) = match (was_pressed, is_pressed) {
             (false, true) => Some(Self::PRESSED),
             (true, false) => Some(Self::RELEASED),
-            (true, true) => Some(Self::HOLD),
             _ => None,
         } {
-            // Button [ - Reduce mouse area
-            if i == 6 && state == Self::PRESSED {
-                self.mouse_area_scale = (self.mouse_area_scale * 0.8).max(0.1);
-                eprintln!("Mouse area reduced: {:.0}%", self.mouse_area_scale * 100.0);
+            // 1. Control de modo universal (ID 12)
+            if i == 12 {
+                if state == Self::PRESSED {
+                    self.is_mouse_mode = !self.is_mouse_mode;
+                    println!("Switched mode to: {}", if self.is_mouse_mode { "MOUSE" } else { "TABLET" });
+                }
                 return;
             }
 
-            // Button ] - Enlarge mouse area
-            if i == 13 && state == Self::PRESSED {
-                self.mouse_area_scale = (self.mouse_area_scale * 1.2).min(0.4);
-                eprintln!("Mouse area increased: {:.0}%", self.mouse_area_scale * 100.0);
+            // 2. Control de sensibilidad y combinación Alt Gr condicional según idioma (IDs 6 y 13)
+            if i == 6 || i == 13 {
+                if self.is_mouse_mode {
+                    if state == Self::PRESSED {
+                        if i == 6 {
+                            self.mouse_area_scale = (self.mouse_area_scale - 0.05).max(0.05);
+                        } else {
+                            self.mouse_area_scale = (self.mouse_area_scale + 0.05).min(0.50);
+                        }
+                        println!("Adjusted mouse speed: {:.0}%", self.mouse_area_scale * 100.0 / 0.3);
+                    }
+                } else if self.is_tablet_mode() {
+                    // DETECCIÓN DINÁMICA DE IDIOMA
+                    let es_espanol = Self::es_layout_espanol();
+
+                    // Si es español, presionamos Alt Gr (KEY_RIGHTALT) antes de enviar el corchete
+                    if es_espanol {
+                        let _ = self.virtual_keyboard.emit(&[
+                            InputEvent::new(EventType::KEY, Key::KEY_RIGHTALT.code(), state)
+                        ]);
+                    }
+
+                    // Enviamos la tecla del corchete correspondiente (ID 6 -> [ , ID 13 -> ])
+                    let tecla_corchete = if i == 6 { Key::KEY_LEFTBRACE } else { Key::KEY_RIGHTBRACE };
+                    let _ = self.virtual_keyboard.emit(&[
+                        InputEvent::new(EventType::KEY, tecla_corchete.code(), state)
+                    ]);
+
+                    // Sincronizamos la combinación en Wayland / Libinput
+                    let _ = self.virtual_keyboard.emit(&[
+                        InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)
+                    ]);
+                }
                 return;
             }
 
-            // Toggle with B button
-            if i == 12 && state == Self::PRESSED {
-                self.is_mouse_mode = !self.is_mouse_mode;
-                eprintln!("Mode: {}", if self.is_mouse_mode { "MOUSE" } else { "TABLET" });
-                return;
-            }
-
+            // 3. Emisión universal estándar para el resto de botones (Fila 2, 4, 5 y 6)
             if let Some(keys) = self.tablet_button_id_to_key_code_map.get(&i) {
-                for &key in keys {
-                    self.virtual_keyboard
-                        .emit(&[InputEvent::new(EventType::KEY, key.code(), state)])
-                        .expect("Error emitting virtual keyboard key.");
+                if i == 12 {
+                    return;
                 }
 
-                self.virtual_keyboard
-                    .emit(&[InputEvent::new(
-                        EventType::SYNCHRONIZATION,
-                        Synchronization::SYN_REPORT.0,
-                        0,
-                    )])
-                    .expect("Error emitting SYN.");
+                for &key in keys {
+                    let _ = self.virtual_keyboard.emit(&[
+                        InputEvent::new(EventType::KEY, key.code(), state)
+                    ]);
+                }
+                let _ = self.virtual_keyboard.emit(&[
+                    InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)
+                ]);
             }
         }
     }
 
-    fn virtual_pen_builder(pen_emitted_keys: &[Key]) -> Result<VirtualDevice, Error> {
-        let abs_x_setup =
-            UinputAbsSetup::new(AbsoluteAxisType::ABS_X, AbsInfo::new(0, 0, 4096, 0, 0, 1));
-        let abs_y_setup =
-            UinputAbsSetup::new(AbsoluteAxisType::ABS_Y, AbsInfo::new(0, 0, 4096, 0, 0, 1));
-        let abs_pressure_setup = UinputAbsSetup::new(
-            AbsoluteAxisType::ABS_PRESSURE,
-            AbsInfo::new(0, 0, 8191, 0, 0, 1), // Cambiado a 8191
-        );
+    fn virtual_keyboard_builder(key_set: &AttributeSet<Key>) -> Result<VirtualDevice, Error> {
+        VirtualDeviceBuilder::new()?
+            .name("VINSA Pad Buttons")
+            .with_keys(key_set)? // Mapeo dinámico
+            .build()
+    }
+
+    fn virtual_mouse_builder() -> Result<VirtualDevice, Error> {
+        let mut key_set = AttributeSet::<Key>::new();
+        key_set.insert(Key::BTN_LEFT);
+        key_set.insert(Key::BTN_RIGHT);
+        key_set.insert(Key::BTN_MIDDLE);
+
+        let mut rel_set = AttributeSet::<RelativeAxisType>::new();
+        rel_set.insert(RelativeAxisType::REL_X);
+        rel_set.insert(RelativeAxisType::REL_Y);
+
+        VirtualDeviceBuilder::new()?
+        .name("VINSA Mouse Emulation")
+        .with_relative_axes(&rel_set)?
+        .with_keys(&key_set)?
+        .build()
+    }
+
+    fn virtual_pen_builder() -> Result<VirtualDevice, Error> {
+        let abs_x_setup = UinputAbsSetup::new(AbsoluteAxisType::ABS_X, AbsInfo::new(0, 0, 4096, 0, 0, 1));
+        let abs_y_setup = UinputAbsSetup::new(AbsoluteAxisType::ABS_Y, AbsInfo::new(0, 0, 4096, 0, 0, 1));
+        let abs_pressure_setup = UinputAbsSetup::new(AbsoluteAxisType::ABS_PRESSURE, AbsInfo::new(0, 0, 8191, 0, 0, 1));
 
         let mut key_set = AttributeSet::<Key>::new();
-        for key in pen_emitted_keys {
-            key_set.insert(*key);
-        }
-
-        for key in &[Key::BTN_TOOL_PEN, Key::BTN_LEFT, Key::BTN_RIGHT] {
+        let pen_keys = &[Key::BTN_TOOL_PEN, Key::BTN_TOUCH, Key::BTN_STYLUS, Key::BTN_STYLUS2];
+        for key in pen_keys {
             key_set.insert(*key);
         }
 
         VirtualDeviceBuilder::new()?
-            .name("virtual_tablet")
-            .with_absolute_axis(&abs_x_setup)?
-            .with_absolute_axis(&abs_y_setup)?
-            .with_absolute_axis(&abs_pressure_setup)?
-            .with_keys(&key_set)?
-            .build()
+        // NOMBRE FORMATEADO PARA REGLAS GENERALES DE WACOM EN LIBINPUT
+        // Al incluir "Wacom" y terminar estrictamente en "Pen", libinput activa la compatibilidad de Stylus integrada de forma agnóstica.
+        .name("Wacom HID 0357 Pen")
+        .with_absolute_axis(&abs_x_setup)?
+        .with_absolute_axis(&abs_y_setup)?
+        .with_absolute_axis(&abs_pressure_setup)?
+        .with_keys(&key_set)?
+        .build()
+    }
+
+    fn normalize_pressure_mode(raw_pressure: i32, threshold: i32, scaling: i32) -> i32 {
+        let inverted_pressure = 1300 - raw_pressure;
+        if inverted_pressure <= threshold { 0 } else { ((inverted_pressure - threshold) * scaling).clamp(0, 8191) }
     }
 
     fn emit_pen_events(&mut self, raw_data: &RawDataReader) {
         let y_raw = raw_data.y_axis();
         let is_multimedia_area = y_raw >= 61000;
-
         if !is_multimedia_area {
             self.last_valid_x = raw_data.x_axis();
         }
-
         let raw_pen_buttons = raw_data.pen_buttons();
-        self.raw_pen_buttons_to_pen_key_events(raw_pen_buttons);
-        self.pen_last_raw_pressed_button = raw_pen_buttons;
-
-        // Pressure normalization by mode
-        let normalized_pressure = if self.is_mouse_mode {
-            Self::normalize_pressure_mode(raw_data.pressure(), 800, 2)
-        } else {
-            Self::normalize_pressure_mode(raw_data.pressure(), 510, 3)
-        };
-
-        let (smoothed_x, smoothed_y) = if is_multimedia_area {
-            (self.last_valid_x, 0) // Multimedia area: last X, top Y
-        } else {
-            self.smooth_coordinates(raw_data.x_axis(), raw_data.y_axis())
-        };
-
-        self.raw_pen_abs_to_pen_abs_events(
-            smoothed_x,
-            smoothed_y,
-            normalized_pressure,
-            is_multimedia_area
-        );
-
-        self.pen_emit_touch(raw_data);
-    }
-
-    fn normalize_pressure_mode(raw_pressure: i32, threshold: i32, scaling: i32) -> i32 {
-        match 2000 - raw_pressure {
-            x if x <= threshold => 0,
-            x => x * scaling,
+        if raw_pen_buttons != self.pen_last_raw_pressed_button {
+            self.raw_pen_buttons_to_pen_key_events(raw_pen_buttons);
+            self.pen_last_raw_pressed_button = raw_pen_buttons;
         }
+        let normalized_pressure = if self.is_mouse_mode {
+            Self::normalize_pressure_mode(raw_data.pressure(), 45, 13)
+        } else {
+            Self::normalize_pressure_mode(raw_data.pressure(), 20, 12)
+        };
+        self.raw_pen_abs_to_pen_abs_events(raw_data.x_axis(), raw_data.y_axis(), normalized_pressure, is_multimedia_area);
+        self.pen_emit_touch(normalized_pressure);
     }
 
     fn raw_pen_abs_to_pen_abs_events(&mut self, x_axis: i32, y_axis: i32, pressure: i32, is_multimedia_area: bool) {
-        let (x, y) = if is_multimedia_area {
-            (self.last_valid_x, 0) // Use last valid X and top position
-        } else if self.is_mouse_mode {
-            let center_x = 1024;
-            let center_y = 2048;
-            let range = (4096.0 * self.mouse_area_scale) as i32;
-            let scale_factor = 4096 / range.max(1);
+        if self.is_mouse_mode {
+            // --- MODO RATÓN RELATIVO DINÁMICO ---
+            if self.last_x != 2048 && !is_multimedia_area {
+                // Modificado el factor a 12.0 para que se acople perfectamente a los pasos de 0.05 de los botones
+                let rel_x = ((x_axis - self.last_x) as f32 * self.mouse_area_scale * 12.0).round() as i32;
+                let rel_y = ((y_axis - self.last_y) as f32 * self.mouse_area_scale * 12.0).round() as i32;
 
-            let scaled_x = ((x_axis - center_x) * scale_factor) + 2048;
-            let scaled_y = ((y_axis - center_y) * scale_factor) + 2048;
-
-            (scaled_x.clamp(0, 4096), scaled_y.clamp(0, 4096))
+                if rel_x != 0 || rel_y != 0 {
+                    let _ = self.virtual_mouse.emit(&[
+                        InputEvent::new(EventType::RELATIVE, RelativeAxisType::REL_X.0, rel_x),
+                                                    InputEvent::new(EventType::RELATIVE, RelativeAxisType::REL_Y.0, rel_y),
+                    ]);
+                }
+            }
+            self.last_x = x_axis;
+            self.last_y = y_axis;
         } else {
-            (x_axis, y_axis.clamp(0, 4095))
-        };
 
-        self.virtual_pen.emit(&[InputEvent::new(
-            EventType::ABSOLUTE,
-            AbsoluteAxisType::ABS_X.0,
-            x,
-        )]).expect("Error emitting ABS_X.");
+            // --- MODO TABLETA ABSOLUTO INTERPOLADO (PARA KRITA) ---
+            let tx = x_axis;
+            let ty = y_axis.clamp(0, 4095);
 
-        self.virtual_pen.emit(&[InputEvent::new(
-            EventType::ABSOLUTE,
-            AbsoluteAxisType::ABS_Y.0,
-            y,
-        )]).expect("Error emitting ABS_Y.");
+            // CORRECCIÓN DEL FILTRO
+            if tx == self.last_raw_usb_x && ty == self.last_raw_usb_y && pressure == self.last_raw_usb_pressure {
+                return;
+            }
 
-        self.virtual_pen.emit(&[InputEvent::new(
-            EventType::ABSOLUTE,
-            AbsoluteAxisType::ABS_PRESSURE.0,
-            pressure,
-        )]).expect("Error emitting Pressure.");
+            let dx = tx - self.last_x;
+            let dy = ty - self.last_y;
+            let max_gap = dx.abs().max(dy.abs());
+            let last_press = if self.last_raw_usb_pressure == -1 { pressure } else { self.last_raw_usb_pressure };
+            let d_press = pressure - last_press;
+
+            let allowed_step = 8;
+            if max_gap > allowed_step && self.last_x != 2048 && !is_multimedia_area && pressure > 0 {
+                let steps = (max_gap / allowed_step).clamp(2, 6);
+                for s in 1..steps {
+                    let t = s as f32 / steps as f32;
+                    let interp_x = (self.last_x as f32 + (dx as f32 * t)).round() as i32;
+                    let interp_y = (self.last_y as f32 + (dy as f32 * t)).round() as i32;
+                    let interp_press = (last_press as f32 + (d_press as f32 * t)).round() as i32;
+
+                    let _ = self.virtual_pen.emit(&[
+                        InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_X.0, interp_x),
+                                                  InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_Y.0, interp_y),
+                                                  InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_PRESSURE.0, interp_press),
+                                                  InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)
+                    ]);
+                }
+            }
+
+            let _ = self.virtual_pen.emit(&[
+                InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_X.0, tx),
+                                          InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_Y.0, ty),
+                                          InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_PRESSURE.0, pressure),
+            ]);
+
+            // Guardar el estado usando los nombres correctos
+            self.last_raw_usb_x = tx;
+            self.last_raw_usb_y = ty;
+            self.last_raw_usb_pressure = pressure;
+            self.last_x = tx;
+            self.last_y = ty;
+        }
     }
 
-    fn pen_emit_touch(&mut self, raw_data: &RawDataReader) {
-        let normalized_pressure = if self.is_mouse_mode {
-            Self::normalize_pressure_mode(raw_data.pressure(), 800, 2)
-        } else {
-            Self::normalize_pressure_mode(raw_data.pressure(), 510, 3)
-        };
 
-        let is_touching = normalized_pressure > 0;
+    fn pen_emit_touch(&mut self, pressure: i32) {
+        let is_touching = pressure > 0;
+
+        if !self.is_mouse_mode {
+            // --- CORRECCIÓN PARA EL MODO TABLETA EN WAYLAND ---
+            // Mientras el driver reciba datos de la tableta, el lápiz está en rango.
+            // Forzamos BTN_TOOL_PEN a 1 para que Kubuntu mantenga el cursor activo en el aire.
+            let _ = self.virtual_pen.emit(&[
+                InputEvent::new(EventType::KEY, Key::BTN_TOOL_PEN.code(), 1),
+            ]);
+        }
+
         if let Some(state) = match (self.was_touching, is_touching) {
             (false, true) => Some(Self::PRESSED),
             (true, false) => Some(Self::RELEASED),
             _ => None,
         } {
-            self.virtual_pen.emit(&[InputEvent::new(
-                EventType::KEY,
-                Key::BTN_TOUCH.code(),
-                state,
-            )]).expect("Error emitting Touch");
+            if self.is_mouse_mode {
+                // En modo ratón el contacto físico equivale al clic izquierdo normal
+                let _ = self.virtual_mouse.emit(&[
+                    InputEvent::new(EventType::KEY, Key::BTN_LEFT.code(), state),
+                ]);
+            } else {
+                // En modo tableta, el contacto físico equivale al BTN_TOUCH de Wacom
+                let _ = self.virtual_pen.emit(&[
+                    InputEvent::new(EventType::KEY, Key::BTN_TOUCH.code(), state),
+                ]);
+            }
         }
         self.was_touching = is_touching;
     }
@@ -385,13 +472,31 @@ impl DeviceDispatcher {
             (x, y) if x != 2 && x == y => Some((Self::HOLD, x)),
             _ => None,
         } {
-            if let Some(keys) = self.pen_button_id_to_key_code_map.get(&id) {
-                for key in keys {
-                    self.virtual_pen
-                        .emit(&[InputEvent::new(EventType::KEY, key.code(), state)])
-                        .expect("Error emitting pen keys.")
+            if self.is_mouse_mode {
+                let target_click = if id == 6 { Key::BTN_RIGHT } else { Key::BTN_MIDDLE };
+                let _ = self.virtual_mouse.emit(&[InputEvent::new(EventType::KEY, target_click.code(), state)]);
+            } else {
+                if let Some(keys) = self.tablet_button_id_to_key_code_map.get(&id) {
+                    for key in keys {
+                        let _ = self.virtual_pen.emit(&[InputEvent::new(EventType::KEY, key.code(), state)]);
+                    }
                 }
             }
         }
+    }
+
+    fn es_layout_espanol() -> bool {
+        let ctx = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        if let Some(keymap) = xkb::Keymap::new_from_names(
+            &ctx,
+            "", "", "", "",
+            None::<String>,
+            xkb::KEYMAP_COMPILE_NO_FLAGS
+        ) {
+            let layout_name = keymap.layout_get_name(0).to_lowercase();
+
+            return layout_name.contains("es") || layout_name.contains("span");
+        }
+        false
     }
 }

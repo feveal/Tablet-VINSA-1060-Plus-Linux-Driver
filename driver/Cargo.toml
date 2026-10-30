@@ -1,14 +1,21 @@
 [package]
 name = "v1060p"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2024"
 
 [dependencies]
 evdev = "0.12.1"
 rusb = "0.9.3"
-signal-hook = "0.3.17"
+ctrlc = "3.4"
+winit = "0.29"
+tray-icon = "0.19"
+gtk = "0.18"
+resvg = "0.43"
+usvg = "0.43"
+xkbcommon = "0.7"
 
 [profile.release]
 strip = true
 lto = true
 panic = "abort"
+

@@ -2,15 +2,14 @@
 Categories=Utility;
 Comment=Driver for VINSA graphics tablet
 Exec=/home/*user*/Driver_tablet/./v1060p
-GenericName=
+GenericName=VINSA Tablet Driver
 Icon=/home/*user*/Driver_tablet/vinsa1060.png
 MimeType=
 Name=Driver Tablet VINSA 1060 Plus
 Path=
 StartupNotify=false
-Terminal=true
+Terminal=false
 TerminalOptions=
 Type=Application
-Version=1.0
-X-KDE-SubstituteUID=false
-X-KDE-Username=
+Version=3.0
+

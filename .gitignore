@@ -1,0 +1,6 @@
+# Excluir binarios y archivos temporales de compilación de Rust
+/driver/target/
+
+# Archivos ocultos o temporales del sistema operativo
+.DS_Store
+📋 *.bak
