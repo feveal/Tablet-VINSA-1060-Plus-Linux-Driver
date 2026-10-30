@@ -1,8 +1,8 @@
-# Linux Driver for VINSA 1060 Plus Drawing Tablet (V5 Cooperativo Wayland)
+# Linux Driver for VINSA 1060 Plus Drawing Tablet (V3)
 
 Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: `08f2:6811`
 
-## 🚀 Complete Code Modification for Wayland (V5)
+## 🚀 Complete Code Modification for Wayland
 
 - **Wayland Native Architecture**: Modified and optimized for **Kubuntu 26.04** running under Wayland (KWin / Libinput). It exposes three independent virtual devices (`uinput`) to avoid compositor interpretation issues.
 - **System Tray Icon Integration**: Added an icon to the taskbar to indicate when the driver is active. This icon dynamically shifts (Mouse 🖱️ / Tablet 🎨) depending on the internal driver state.
