@@ -87,6 +87,7 @@ pub struct DeviceDispatcher {
     last_raw_usb_x: i32,
     last_raw_usb_y: i32,
     last_raw_usb_pressure: i32,
+    active_multimedia_key: Option<Key>,
 }
 
 impl Default for DeviceDispatcher {
@@ -136,17 +137,28 @@ impl DeviceDispatcher {
         .cloned()
         .collect();
 
-        let mut todas_las_teclas_teclado = AttributeSet::<Key>::new();
+        let mut all_keyboard_keys = AttributeSet::<Key>::new();
         for keys in default_tablet_button_id_to_key_code_map.values() {
             for key in keys {
-                todas_las_teclas_teclado.insert(*key);
+                all_keyboard_keys.insert(*key);
             }
         }
 
         // Registrar preventivamente los códigos físicos
-        todas_las_teclas_teclado.insert(Key::KEY_APOSTROPHE);
-        todas_las_teclas_teclado.insert(Key::KEY_BACKSLASH);
-        todas_las_teclas_teclado.insert(Key::KEY_RIGHTALT);
+        all_keyboard_keys.insert(Key::KEY_APOSTROPHE);
+        all_keyboard_keys.insert(Key::KEY_BACKSLASH);
+        all_keyboard_keys.insert(Key::KEY_RIGHTALT);
+
+        all_keyboard_keys.insert(Key::KEY_MUTE);          // 0. Mute
+        all_keyboard_keys.insert(Key::KEY_VOLUMEDOWN);    // 1. Volumen -
+        all_keyboard_keys.insert(Key::KEY_VOLUMEUP);      // 2. Volumen +
+        all_keyboard_keys.insert(Key::KEY_PLAYER);        // 3. Música
+        all_keyboard_keys.insert(Key::KEY_PLAYPAUSE);     // 4. Play / Pausa
+        all_keyboard_keys.insert(Key::KEY_PREVIOUSSONG);  // 5. Saltar atrás
+        all_keyboard_keys.insert(Key::KEY_NEXTSONG);      // 6. Saltar adelante
+        all_keyboard_keys.insert(Key::KEY_HOMEPAGE);      // 7. Inicio (Navegador)
+        all_keyboard_keys.insert(Key::KEY_CALC);          // 8. Calculadora
+        all_keyboard_keys.insert(Key::KEY_STOPCD);        // 9. Stop
 
         DeviceDispatcher {
             tablet_last_raw_pressed_buttons: 0xFFFF,
@@ -154,7 +166,7 @@ impl DeviceDispatcher {
             tablet_button_id_to_key_code_map: default_tablet_button_id_to_key_code_map.clone(),
             _pen_button_id_to_key_code_map: default_pen_button_id_to_key_code_map.clone(),
 
-            virtual_keyboard: Self::virtual_keyboard_builder(&todas_las_teclas_teclado).expect("Error virtual_keyboard"),
+            virtual_keyboard: Self::virtual_keyboard_builder(&all_keyboard_keys).expect("Error virtual_keyboard"),
             virtual_mouse: Self::virtual_mouse_builder().expect("Error virtual_mouse"),
             virtual_pen: Self::virtual_pen_builder().expect("Error virtual_pen"),
             was_touching: false,
@@ -163,12 +175,13 @@ impl DeviceDispatcher {
             last_x: 2048,
             last_y: 2048,
 
-            mouse_area_scale: 0.15,
+            mouse_area_scale: 0.10, // Valor de sensibilidad de inicio
 
             last_valid_x: 2048,
             last_raw_usb_x: -1,
             last_raw_usb_y: -1,
             last_raw_usb_pressure: -1,
+            active_multimedia_key: None,
         }
     }
 
@@ -253,19 +266,22 @@ impl DeviceDispatcher {
                 if self.is_mouse_mode {
                     if state == Self::PRESSED {
                         if i == 6 {
-                            self.mouse_area_scale = (self.mouse_area_scale - 0.05).max(0.05);
+                            // Baja de 2% en 2% hasta un mínimo de 0.04 (4%)
+                            self.mouse_area_scale = (self.mouse_area_scale - 0.02).max(0.04);
                         } else {
-                            self.mouse_area_scale = (self.mouse_area_scale + 0.05).min(0.50);
+                            // Sube de 2% en 2% hasta un máximo de 0.30 (30%)
+                            self.mouse_area_scale = (self.mouse_area_scale + 0.02).min(0.30);
                         }
                         println!(
                             "{} {:.0}%",
                             gettext("Adjusted mouse speed:"),
-                            self.mouse_area_scale * 100.0 / 0.3
+                            self.mouse_area_scale * 100.0
                         );
                     }
                 } else if self.is_tablet_mode() {
                     // DETECCIÓN DINÁMICA DE IDIOMA
                     let es_espanol = Self::es_layout_espanol();
+
 
                     // Si es español, presionamos Alt Gr (KEY_RIGHTALT) antes de enviar el corchete
                     if es_espanol {
@@ -275,9 +291,9 @@ impl DeviceDispatcher {
                     }
 
                     // Enviamos la tecla del corchete correspondiente (ID 6 -> [ , ID 13 -> ])
-                    let tecla_corchete = if i == 6 { Key::KEY_LEFTBRACE } else { Key::KEY_RIGHTBRACE };
+                    let key_leftbr = if i == 6 { Key::KEY_LEFTBRACE } else { Key::KEY_RIGHTBRACE };
                     let _ = self.virtual_keyboard.emit(&[
-                        InputEvent::new(EventType::KEY, tecla_corchete.code(), state)
+                        InputEvent::new(EventType::KEY, key_leftbr.code(), state)
                     ]);
 
                     // Sincronizamos la combinación en Wayland / Libinput
@@ -357,22 +373,45 @@ impl DeviceDispatcher {
         if inverted_pressure <= threshold { 0 } else { ((inverted_pressure - threshold) * scaling).clamp(0, 8191) }
     }
 
+
     fn emit_pen_events(&mut self, raw_data: &RawDataReader) {
         let y_raw = raw_data.y_axis();
         let is_multimedia_area = y_raw >= 61000;
-        if !is_multimedia_area {
+
+        // --- INTERCEPCIÓN TOTAL DEL ÁREA MULTIMEDIA ---
+        if is_multimedia_area {
+            // Forzamos la liberación inmediata del touch/click por si veníamos arrastrando el lápiz desde abajo
+            if self.was_touching {
+                self.pen_emit_touch(0);
+            }
+
+            // Procesamos la pulsación del botón multimedia basado en la presión invertida (< 1200)
+            self.process_multimedia_area(raw_data.x_axis(), raw_data.pressure());
+
+            // Con return, evitamos por completo enviar coordenadas absolutas o eventos de click
+            return;
+        } else {
+            // Si salimos de la zona multimedia, nos aseguramos de liberar cualquier botón enganchado
+            if self.active_multimedia_key.is_some() {
+                self.process_multimedia_area(raw_data.x_axis(), 1300); // 1300 = Aire (libera)
+            }
             self.last_valid_x = raw_data.x_axis();
         }
+
+        // --- FLUJO NORMAL FUERA DEL ÁREA MULTIMEDIA ---
         let raw_pen_buttons = raw_data.pen_buttons();
         if raw_pen_buttons != self.pen_last_raw_pressed_button {
             self.raw_pen_buttons_to_pen_key_events(raw_pen_buttons);
             self.pen_last_raw_pressed_button = raw_pen_buttons;
         }
+
         let normalized_pressure = if self.is_mouse_mode {
-            Self::normalize_pressure_mode(raw_data.pressure(), 45, 13)
+            Self::normalize_pressure_mode(raw_data.pressure(), 300, 10)
         } else {
             Self::normalize_pressure_mode(raw_data.pressure(), 20, 12)
         };
+
+        // Aquí es donde se mueven y hacen click los dispositivos virtuales de evdev
         self.raw_pen_abs_to_pen_abs_events(raw_data.x_axis(), raw_data.y_axis(), normalized_pressure, is_multimedia_area);
         self.pen_emit_touch(normalized_pressure);
     }
@@ -381,7 +420,7 @@ impl DeviceDispatcher {
         if self.is_mouse_mode {
             // --- MODO RATÓN RELATIVO DINÁMICO ---
             if self.last_x != 2048 && !is_multimedia_area {
-                // Modificado el factor a 12.0 para que se acople perfectamente a los pasos de 0.05 de los botones
+
                 let rel_x = ((x_axis - self.last_x) as f32 * self.mouse_area_scale * 12.0).round() as i32;
                 let rel_y = ((y_axis - self.last_y) as f32 * self.mouse_area_scale * 12.0).round() as i32;
 
@@ -443,7 +482,6 @@ impl DeviceDispatcher {
             self.last_y = ty;
         }
     }
-
 
     fn pen_emit_touch(&mut self, pressure: i32) {
         let is_touching = pressure > 0;
@@ -510,5 +548,50 @@ impl DeviceDispatcher {
             return layout_name.contains("es") || layout_name.contains("span");
         }
         false
+    }
+
+
+    fn process_multimedia_area(&mut self, x: i32, pressure: i32) {
+
+        let is_touching = pressure < 1200;
+
+        if is_touching {
+            if self.active_multimedia_key.is_some() {
+                return;
+            }
+
+            let index = (x / 410).clamp(0, 9);
+
+            let target_key = match index {
+                0 => Key::KEY_MUTE,
+                1 => Key::KEY_VOLUMEDOWN,
+                2 => Key::KEY_VOLUMEUP,
+                3 => Key::KEY_PLAYER,
+                4 => Key::KEY_PLAYPAUSE,
+                5 => Key::KEY_PREVIOUSSONG,
+                6 => Key::KEY_NEXTSONG,
+                7 => Key::KEY_HOMEPAGE,
+                8 => Key::KEY_CALC,
+                _ => Key::KEY_STOPCD,
+            };
+
+            let _ = self.virtual_keyboard.emit(&[
+                InputEvent::new(EventType::KEY, target_key.code(), Self::PRESSED)
+            ]);
+            let _ = self.virtual_keyboard.emit(&[
+                InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)
+            ]);
+
+            self.active_multimedia_key = Some(target_key);
+        } else {
+            if let Some(key) = self.active_multimedia_key.take() {
+                let _ = self.virtual_keyboard.emit(&[
+                    InputEvent::new(EventType::KEY, key.code(), Self::RELEASED)
+                ]);
+                let _ = self.virtual_keyboard.emit(&[
+                    InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)
+                ]);
+            }
+        }
     }
 }

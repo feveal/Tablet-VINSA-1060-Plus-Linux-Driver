@@ -1,4 +1,27 @@
-# Latest update (V.3.0.1): Language support is added ​​via .po file.
+# Latest update (V.3.0.2): Multimedia keys enabled
+- All multimedia keys in the tablet upper area perform their corresponding functions:
+
+        KEY_MUTE           0. Mute
+        
+        KEY_VOLUMEDOWN     1. Volume -
+        
+        KEY_VOLUMEUP       2. Volume +
+        
+        KEY_PLAYER         3. Music
+        
+        KEY_PLAYPAUSE      4. Play / Pause
+        
+        KEY_PREVIOUSSONG   5. Previous track
+        
+        KEY_NEXTSONG       6. Next track
+        
+        KEY_HOMEPAGE       7. Home (Browser)
+        
+        KEY_CALC           8. Calculator
+        
+        KEY_STOPCD         9. Stop
+
+# Update (V.3.0.1): Language support is added ​​via .po file.
 - Spanish language added
 
 # Linux Driver for VINSA 1060 Plus Drawing Tablet (V.3.0.0)
