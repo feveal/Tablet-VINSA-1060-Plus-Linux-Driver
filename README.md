@@ -1,4 +1,4 @@
-# Latest update (V.3.0.1): Added the option to select languages ​​via .po file
+# Latest update (V.3.0.1): Language support is added ​​via .po file.
 - Spanish language added
 
 # Linux Driver for VINSA 1060 Plus Drawing Tablet (V.3.0.0)
