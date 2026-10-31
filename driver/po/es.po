@@ -1,0 +1,50 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: v1060p 3.0.0\n"
+"PO-Revision-Date: 2026-10-31 01:00+0100\n"
+"Last-Translator: VINSA Driver contributors\n"
+"Language-Team: Spanish\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: es\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Could not create the pixel buffer in memory"
+msgstr "No se pudo crear el búfer de píxeles en memoria"
+
+msgid "Could not initialize translations: {}"
+msgstr "No se pudieron inicializar las traducciones: {}"
+
+msgid "Critical error loading SVG for mouse: {}, using fallback."
+msgstr "Error crítico al cargar el SVG del ratón: {}, se usará el icono alternativo."
+
+msgid "Critical error loading SVG for tablet: {}, using fallback."
+msgstr "Error crítico al cargar el SVG de la tableta: {}, se usará el icono alternativo."
+
+msgid "Error generating the icon structure: {}"
+msgstr "Error al generar la estructura del icono: {}"
+
+msgid "Error initializing GTK: {}"
+msgstr "Error al inicializar GTK: {}"
+
+msgid "Error parsing the SVG file: {}"
+msgstr "Error al analizar el archivo SVG: {}"
+
+msgid "Adjusted mouse speed:"
+msgstr "Velocidad del ratón ajustada:"
+
+msgid "Mode: Mouse"
+msgstr "Modo: Ratón"
+
+msgid "Mode: Tablet"
+msgstr "Modo: Tableta"
+
+msgid "Quit"
+msgstr "Salir"
+
+msgid "Switched mode to: MOUSE"
+msgstr "Modo cambiado a: RATÓN"
+
+msgid "Switched mode to: TABLET"
+msgstr "Modo cambiado a: TABLETA"

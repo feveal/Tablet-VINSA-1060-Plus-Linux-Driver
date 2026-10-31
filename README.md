@@ -1,4 +1,7 @@
-# Linux Driver for VINSA 1060 Plus Drawing Tablet (V3)
+# Latest update (V.3.0.1): Added the option to select languages ​​via .po file
+- Spanish language added
+
+# Linux Driver for VINSA 1060 Plus Drawing Tablet (V.3.0.0)
 
 Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: `08f2:6811`
 
@@ -66,6 +69,12 @@ sudo apt update
 sudo apt install libxkbcommon-dev libgtk-3-dev pkg-config build-essential
 ```
 
+The gettext development tools are only needed when updating or compiling translations:
+
+```bash
+sudo apt install gettext
+```
+
 ---
 
 ## 📦 Installation
@@ -114,6 +123,15 @@ chmod +x driver/target/release/v1060p
 ```
 
 Open the `VINSA 1060 Plus Tablet.desktop` file with any text editor and change the `Exec=` and `Icon=` absolute paths to point to your local installation directory. Place it on your Desktop to run it manually on-demand.
+
+The tray menu and diagnostic messages use gettext. English is the source language; Spanish translations are in `driver/po/es.po`. To update the compiled catalog after editing a translation:
+
+```bash
+cd driver
+msgfmt -o locale/es/LC_MESSAGES/v1060p.mo po/es.po
+```
+
+For an installation outside the repository, install the `locale` directory under `/usr/share/locale` (for example, copy `driver/locale/es` to `/usr/share/locale/es`). The driver selects the system language from `LANGUAGE`, `LC_MESSAGES`, or `LANG`.
 
 ---
 

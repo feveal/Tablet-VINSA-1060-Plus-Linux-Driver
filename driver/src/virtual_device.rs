@@ -1,6 +1,7 @@
 // VINSA 1060 Plus Linux Driver - src/virtual_device.rs
 use std::io::Error;
 use std::collections::HashMap;
+use gettextrs::gettext;
 use xkbcommon::xkb;
 
 use evdev::{
@@ -235,7 +236,14 @@ impl DeviceDispatcher {
             if i == 12 {
                 if state == Self::PRESSED {
                     self.is_mouse_mode = !self.is_mouse_mode;
-                    println!("Switched mode to: {}", if self.is_mouse_mode { "MOUSE" } else { "TABLET" });
+                    println!(
+                        "{}",
+                        gettext(if self.is_mouse_mode {
+                            "Switched mode to: MOUSE"
+                        } else {
+                            "Switched mode to: TABLET"
+                        })
+                    );
                 }
                 return;
             }
@@ -249,7 +257,11 @@ impl DeviceDispatcher {
                         } else {
                             self.mouse_area_scale = (self.mouse_area_scale + 0.05).min(0.50);
                         }
-                        println!("Adjusted mouse speed: {:.0}%", self.mouse_area_scale * 100.0 / 0.3);
+                        println!(
+                            "{} {:.0}%",
+                            gettext("Adjusted mouse speed:"),
+                            self.mouse_area_scale * 100.0 / 0.3
+                        );
                     }
                 } else if self.is_tablet_mode() {
                     // DETECCIÓN DINÁMICA DE IDIOMA

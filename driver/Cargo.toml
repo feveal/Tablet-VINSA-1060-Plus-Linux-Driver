@@ -1,6 +1,6 @@
 [package]
 name = "v1060p"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2024"
 
 [dependencies]
@@ -10,6 +10,7 @@ ctrlc = "3.4"
 winit = "0.29"
 tray-icon = "0.19"
 gtk = "0.18"
+gettext-rs = "0.8"
 resvg = "0.43"
 usvg = "0.43"
 xkbcommon = "0.7"
@@ -18,4 +19,3 @@ xkbcommon = "0.7"
 strip = true
 lto = true
 panic = "abort"
-
