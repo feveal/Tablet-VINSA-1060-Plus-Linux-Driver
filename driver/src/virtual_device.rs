@@ -1,4 +1,4 @@
-// VINSA 1060 Plus Linux Driver - src/virtual_device.rs
+// VINSA 1060 Plus Linux Driver - src/virtual_device.rs (by feveal@hotmail.com)
 use std::io::Error;
 use std::collections::HashMap;
 use gettextrs::gettext;

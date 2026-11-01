@@ -1,3 +1,4 @@
+// VINSA 1060 Plus Linux Driver - src/physical_device.rs (by feveal@hotmail.com)
 use rusb::{
     devices, ConfigDescriptor, Device, DeviceHandle, Error as RusbError, GlobalContext,
     InterfaceDescriptor, TransferType,

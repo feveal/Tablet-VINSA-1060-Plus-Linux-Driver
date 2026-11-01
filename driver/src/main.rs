@@ -1,3 +1,4 @@
+// VINSA 1060 Plus Linux Driver - src/main.rs (by feveal@hotmail.com)
 mod virtual_device;
 mod physical_device;
 
