@@ -17,7 +17,7 @@ Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivi
 - Full pressure support (8192 levels).
 - Adjustable relative mouse speed scaling.
 - Mouse/Tablet mode toggle via hardware button.
-- The taskbar icon indicates Tablet or Mouse mode.
+- The taskbar icon indicates Tablet or Mouse mode. <img src="driver/resources/raton.svg" width="24">  <img src="driver/resources/tableta-grafica.svg" width="24">
 - Custom desktop launcher integration.
 - All multimedia keys in the tablet upper area perform their corresponding functions
 
