@@ -18,6 +18,7 @@ Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivi
 - Adjustable relative mouse speed scaling.
 - Mouse/Tablet mode toggle via hardware button.
 - Custom desktop launcher integration.
+- All multimedia keys in the tablet upper area perform their corresponding functions
 
 ### Buttons mapping
 <table>
