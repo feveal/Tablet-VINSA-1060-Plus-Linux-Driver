@@ -9,7 +9,7 @@ Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivi
 - **System Tray Icon Integration**: Added an icon to the taskbar to indicate when the driver is active. This icon dynamically shifts (Mouse 🖱️ / Tablet 🎨) depending on the internal driver state.
 - **Krita Cursor Fix**: Uses a standardized device name prefix (`Wacom...`) to force Libinput to treat the virtual injector as a real `TABLET_TOOL` digitalizer, enabling the brush circle and pressure levels in any system language.
 - **Multi-language Hotkeys**: Integrates `xkbcommon` to detect the system layout at runtime. It automatically bundles an atomic burst of events with `Alt Gr` (`KEY_RIGHTALT`) if the system is in Spanish to type `[` and `]` correctly, skipping it seamlessly if the system is in English.
-- **Anti-USB Flood Filtering**: Implemented an absolute event rejection filter to drop consecutive identical coordinate packets, dropping CPU overhead down to 0% in applications like Google Chrome.
+- **Anti-USB Flood Filtering**: Implemented an absolute event rejection filter to drop consecutive identical coordinate packets, dropping CPU overhead down.
 - **Taskbar Control**: Right-clicking the taskbar icon displays a contextual menu to exit the driver cleanly.
 
 ## ✨ Features
