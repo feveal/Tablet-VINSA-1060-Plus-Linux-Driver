@@ -135,7 +135,7 @@ For an installation outside the repository, install the `locale` directory under
 
 ---
 
-### 🌐 Brush Size Button Configuration <font size="+3">[</font> - <font size="+3">]</font> for Other Languages (Français, Deutsch, Italiano)
+### 🌐 Brush Size Button Configuration [ - ] for Other Languages (Français, Deutsch, Italiano)
 
 The driver automatically detects **Spanish** keyboard layouts and applies the internal `Alt Gr` modifiers required for brush resizing out of the box. 
 
