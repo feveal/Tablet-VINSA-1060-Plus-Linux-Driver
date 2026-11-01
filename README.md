@@ -1,30 +1,5 @@
-# Latest update (V.3.0.2): Multimedia keys enabled
-- All multimedia keys in the tablet upper area perform their corresponding functions:
 
-        KEY_MUTE           0. Mute
-        
-        KEY_VOLUMEDOWN     1. Volume -
-        
-        KEY_VOLUMEUP       2. Volume +
-        
-        KEY_PLAYER         3. Music
-        
-        KEY_PLAYPAUSE      4. Play / Pause
-        
-        KEY_PREVIOUSSONG   5. Previous track
-        
-        KEY_NEXTSONG       6. Next track
-        
-        KEY_HOMEPAGE       7. Home (Browser)
-        
-        KEY_CALC           8. Calculator
-        
-        KEY_STOPCD         9. Stop
-
-# Update (V.3.0.1): Language support is added ​​via .po file.
-- Spanish language added
-
-# Linux Driver for VINSA 1060 Plus Drawing Tablet (V.3.0.0)
+# Linux Driver for VINSA 1060 Plus Drawing Tablet (V.3.0.2)
 
 Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivity and button support. Chipset: `08f2:6811`
 
@@ -158,7 +133,33 @@ For an installation outside the repository, install the `locale` directory under
 
 ---
 
+# Latest update (V.3.0.2; 2026-10-30): Multimedia keys enabled
+- All multimedia keys in the tablet upper area perform their corresponding functions:
+
+        KEY_MUTE           0. Mute
+        
+        KEY_VOLUMEDOWN     1. Volume -
+        
+        KEY_VOLUMEUP       2. Volume +
+        
+        KEY_PLAYER         3. Music
+        
+        KEY_PLAYPAUSE      4. Play / Pause
+        
+        KEY_PREVIOUSSONG   5. Previous track
+        
+        KEY_NEXTSONG       6. Next track
+        
+        KEY_HOMEPAGE       7. Home (Browser)
+        
+        KEY_CALC           8. Calculator
+        
+        KEY_STOPCD         9. Stop
+
+# Update (V.3.0.1): Language support is added ​​via .po file.
+- Spanish language added
+
+---
+
 ## References
-- [marvinbelfort](https://github.com) - Initial research
-- [DIGImend/10moons-tools](https://github.com) - Expanded mode enablement
-- [alex-s-v/10moons-driver](https://github.com) - User-space driver approach
+- [marvinbelfort](https://github.com/marvinbelfort/mx002_linux_driver) - Initial research
