@@ -37,12 +37,12 @@ Linux driver for the VINSA 1060 Plus drawing tablet with full pressure sensitivi
         <li><strong>Button CTRL + :</strong> Zoom in</li>
         <br></br>
         <li><strong>Tablet Mode</li>
-        <li style="margin-left: 25px;"><strong>Button [ :</strong> Decrease brush size</li>
-        <li style="margin-left: 25px;"><strong>Button ] :</strong> Increase brush size</li>
+          <li style="margin-left: 25px;"><strong>Button [ :</strong> Decrease brush size</li>
+          <li style="margin-left: 25px;"><strong>Button ] :</strong> Increase brush size</li>
         <br></br>
         <li><strong>Mouse Mode</li>
-        <li style="margin-left: 25px;"><strong>Button [ :</strong> Decrease speed mouse</li>
-        <li style="margin-left: 25px;"><strong>Button ] :</strong> Increase speed mouse</li>
+          <li style="margin-left: 25px;"><strong>Button [ :</strong> Decrease speed mouse</li>
+          <li style="margin-left: 25px;"><strong>Button ] :</strong> Increase speed mouse</li>
         <br></br>
         <li><strong>Mouse up:</strong> Scroll up</li>
         <li><strong>TAB:</strong> Toggle full screen</li>
@@ -132,6 +132,43 @@ msgfmt -o locale/es/LC_MESSAGES/v1060p.mo po/es.po
 ```
 
 For an installation outside the repository, install the `locale` directory under `/usr/share/locale` (for example, copy `driver/locale/es` to `/usr/share/locale/es`). The driver selects the system language from `LANGUAGE`, `LC_MESSAGES`, or `LANG`.
+
+---
+
+### 🌐 Brush Size Button Configuration <font size="+3">[</font> - <font size="+3">]</font> for Other Languages (Français, Deutsch, Italiano)
+
+The driver automatically detects **Spanish** keyboard layouts and applies the internal `Alt Gr` modifiers required for brush resizing out of the box. 
+
+However, if your system layout is set to **French, German, or Italian**, your OS maps the driver's hardware signals (`KEY_LEFTBRACE` and `KEY_RIGHTBRACE`) to different local characters. To make them work seamlessly in your language, you just need to add a secondary shortcut mapping in Krita:
+
+#### 🛠️ Krita Configuration Steps:
+1. Open **Krita** and navigate to the shortcuts menu:
+   * **Français:** *Configuration ➔ Configurer Krita... ➔ Raccourcis clavier*
+   * **Deutsch:** *Einstellungen ➔ Krita konfigurieren... ➔ Tastaturkürzel*
+   * **Italiano:** *Impostazioni ➔ Configura Krita... ➔ Scorciatoie da tastiera*
+2. Use the search bar to locate the brush size actions:
+   * For French, search: **"taille du pinceau"**
+   * For German, search: **"pinselgröße"**
+   * For Italian, search: **"dimensione del pennello"**
+3. Select the **Decrease** or **Increase** action.
+4. Set the shortcut to **Custom** (*Personnalisé* / *Benutzerdefiniert* / *Personalizzato*) and click to assign. Then, press the physical button on your tablet.
+
+#### ⌨️ Expected Native Key Registration:
+When assigning the tablet buttons inside Krita's shortcut window, the software will automatically register the native character of your specific regional layout:
+
+* **🇫🇷 French (AZERTY):**
+  * Decrease Button (ID 6): Registers as `^` or `$`
+  * Increase Button (ID 13): Registers as `ù` or `*`
+
+* **🇩🇪 German (QWERTZ):**
+  * Decrease Button (ID 6): Registers as `ü`
+  * Increase Button (ID 13): Registers as `+`
+
+* **🇮🇹 Italian (QWERTY):**
+  * Decrease Button (ID 6): Registers as `^`
+  * Increase Button (ID 13): Registers as `$`
+
+Once saved, your tablet express keys will change and control the brush size smoothly without messing up your layout configuration.
 
 ---
 
