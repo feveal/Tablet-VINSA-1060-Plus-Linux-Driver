@@ -13,14 +13,17 @@ pub struct PhysicalDevice {
 }
 
 impl PhysicalDevice {
-    pub fn new(vid: u16, pid: u16) -> Self {
-        let device = Self::get_target_device(vid, pid).expect("Error finding device.");
+    /// Devuelve un error en vez de hacer panic, para que main() muestre un
+    /// mensaje útil (tableta ausente vs. permisos) y salga limpiamente.
+    pub fn try_new(vid: u16, pid: u16) -> Result<Self, RusbError> {
+        let device = Self::get_target_device(vid, pid)?;
+        let device_handle = device.open()?;
 
-        PhysicalDevice {
+        Ok(PhysicalDevice {
             endpoint_address: 0,
-            device_handle: device.open().expect("Error opening device."),
+            device_handle,
             device,
-        }
+        })
     }
 
     pub fn init(&mut self) -> &mut Self {
