@@ -2,7 +2,6 @@
 mod virtual_device;
 mod physical_device;
 
-use std::u16;
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -129,6 +128,24 @@ fn main() {
         );
     }
 
+    // 1. Abrir la tableta primero: si falta o no hay permisos, mensaje claro y
+    //    salida limpia (código 1) en vez de un panic/core dump.
+    let mut physical_device = match PhysicalDevice::try_new(VID, PID) {
+        Ok(device) => device,
+        Err(rusb::Error::NoDevice) | Err(rusb::Error::NotFound) => {
+            eprintln!("Tablet 08f2:6811 not found. Is it plugged in? (check with: lsusb -d 08f2:6811)");
+            std::process::exit(1);
+        }
+        Err(rusb::Error::Access) => {
+            eprintln!("Permission denied opening the tablet. Check the udev rule and replug the tablet.");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error opening the tablet: {e}");
+            std::process::exit(1);
+        }
+    };
+
     // Inicializar GTK para evitar el pánico del hilo principal
     if let Err(e) = gtk::init() {
         eprintln!("{}", translated_format("Error initializing GTK: {}", e));
@@ -161,8 +178,7 @@ fn main() {
             Icon::from_rgba(vec![0; 4], 1, 1).unwrap()
         });
 
-    // 1. Inicialización de dispositivos físicos
-    let mut physical_device = PhysicalDevice::new(VID, PID);
+    // Reclamar las interfaces y pasar la tableta a modo de área completa
     physical_device.init().set_full_mode();
 
     // Compartir el dispatcher en un Mutex seguro entre hilos
@@ -172,22 +188,25 @@ fn main() {
     // 2. HILO SECUNDARIO: Lector USB en segundo plano
     thread::spawn(move || {
         let mut data_reader = RawDataReader::new();
+        // read_interrupt() con Duration::ZERO bloquea hasta que llega un paquete
+        // (0 = sin límite en libusb). Cada emit() de evdev ya añade su SYN_REPORT.
         loop {
-            let mut read_at_least_one = false;
-
-            while let Ok(_) = physical_device.read_device_responses(&mut data_reader.data) {
-                if let Ok(mut disp) = dispatcher_clone.lock() {
-                    disp.dispatch(&data_reader);
+            match physical_device.read_device_responses(&mut data_reader.data) {
+                Ok(_) => {
+                    if let Ok(mut disp) = dispatcher_clone.lock() {
+                        disp.dispatch(&data_reader);
+                    }
                 }
-                read_at_least_one = true;
-            }
-
-            if read_at_least_one {
-                if let Ok(mut disp) = dispatcher_clone.lock() {
-                    let _ = disp.syn();
+                // Condiciones transitorias: volver a leer.
+                Err(rusb::Error::Timeout)
+                | Err(rusb::Error::Interrupted)
+                | Err(rusb::Error::Overflow) => continue,
+                // Desconectada: salir con código 1 en vez de quedarse en un bucle
+                // muerto, para que systemd (Restart=on-failure) pueda relanzarlo.
+                Err(e) => {
+                    eprintln!("Tablet disconnected or USB error ({e}). Exiting.");
+                    std::process::exit(1);
                 }
-            } else {
-                thread::sleep(std::time::Duration::from_millis(5));
             }
         }
     });
@@ -221,11 +240,13 @@ fn main() {
     let dispatcher_ui = Arc::clone(&dispatcher);
     let mut last_known_mode = true; // true = Ratón, false = Tableta
 
-    event_loop.set_control_flow(ControlFlow::WaitUntil(
-        std::time::Instant::now() + std::time::Duration::from_millis(100)
-    ));
-
     event_loop.run(move |_event, event_loop| {
+        // Re-armar el temporizador en CADA iteración. Antes se fijaba una sola vez
+        // antes de run(): al pasar ese instante, winit despertaba continuamente y
+        // el hilo de la interfaz consumía ~100% de CPU.
+        event_loop.set_control_flow(ControlFlow::WaitUntil(
+            std::time::Instant::now() + std::time::Duration::from_millis(100)
+        ));
         // Ejecutar iteración del bucle principal de GTK para procesar eventos
         gtk::main_iteration_do(false);
 

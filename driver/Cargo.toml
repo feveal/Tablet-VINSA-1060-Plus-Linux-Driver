@@ -8,7 +8,9 @@ evdev = "0.12.1"
 rusb = "0.9.3"
 ctrlc = "3.4"
 winit = "0.29"
-tray-icon = "0.19"
+# default-features = false: evita libxdo (solo se usa para los elementos de menú
+# predefinidos Copiar/Pegar). Sin esto la compilación falla si falta libxdo-dev.
+tray-icon = { version = "0.19", default-features = false }
 gtk = "0.18"
 gettext-rs = "0.8"
 resvg = "0.43"

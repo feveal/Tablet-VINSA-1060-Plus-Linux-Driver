@@ -69,7 +69,7 @@ pub struct DeviceDispatcher {
     tablet_last_raw_pressed_buttons: u16,
     pen_last_raw_pressed_button: u8,
     tablet_button_id_to_key_code_map: HashMap<u8, Vec<Key>>,
-    _pen_button_id_to_key_code_map: HashMap<u8, Vec<Key>>,
+    pen_button_id_to_key_code_map: HashMap<u8, Vec<Key>>,
 
     // Tres dispositivos independientes para no confundir a Libinput/Wayland
     virtual_pen: VirtualDevice,
@@ -87,6 +87,14 @@ pub struct DeviceDispatcher {
     last_raw_usb_x: i32,
     last_raw_usb_y: i32,
     last_raw_usb_pressure: i32,
+    last_raw_usb_pen_buttons: u8,
+
+    // Última presión normalizada emitida (interpolación / filtro de repetidos).
+    // Separada de last_raw_usb_pressure, que guarda el valor RAW del filtro USB.
+    last_pen_pressure: i32,
+    // Modo ratón: ignorar el siguiente delta tras cambiar de modo o al volver el lápiz.
+    mouse_resync: bool,
+    last_mouse_motion_at: Option<std::time::Instant>,
     active_multimedia_key: Option<Key>,
 }
 
@@ -164,7 +172,7 @@ impl DeviceDispatcher {
             tablet_last_raw_pressed_buttons: 0xFFFF,
             pen_last_raw_pressed_button: 0,
             tablet_button_id_to_key_code_map: default_tablet_button_id_to_key_code_map.clone(),
-            _pen_button_id_to_key_code_map: default_pen_button_id_to_key_code_map.clone(),
+            pen_button_id_to_key_code_map: default_pen_button_id_to_key_code_map.clone(),
 
             virtual_keyboard: Self::virtual_keyboard_builder(&all_keyboard_keys).expect("Error virtual_keyboard"),
             virtual_mouse: Self::virtual_mouse_builder().expect("Error virtual_mouse"),
@@ -181,6 +189,10 @@ impl DeviceDispatcher {
             last_raw_usb_x: -1,
             last_raw_usb_y: -1,
             last_raw_usb_pressure: -1,
+            last_raw_usb_pen_buttons: 0,
+            last_pen_pressure: -1,
+            mouse_resync: true,
+            last_mouse_motion_at: None,
             active_multimedia_key: None,
         }
     }
@@ -188,29 +200,30 @@ impl DeviceDispatcher {
 
 
 
-    pub fn syn(&mut self) -> Result<(), Error> {
-        let _ = self.virtual_keyboard.emit(&[InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)]);
-        let _ = self.virtual_mouse.emit(&[InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)]);
-        let _ = self.virtual_pen.emit(&[InputEvent::new(EventType::SYNCHRONIZATION, Synchronization::SYN_REPORT.0, 0)]);
-        Ok(())
-    }
-
     pub fn dispatch(&mut self, raw_data: &RawDataReader) {
         let current_raw_x = raw_data.x_axis();
         let current_raw_y = raw_data.y_axis();
         let current_raw_pressure = raw_data.pressure();
 
         // --- FILTRO DE DESCARTE ABSOLUTO ---
+        // Los bytes de botones DEBEN formar parte de la comparación: con el lápiz
+        // fuera de rango, la tableta repite la última posición (obsoleta), así que
+        // al pulsar un botón SOLO cambian los bytes de botones. Comparando solo
+        // x/y/presión, en modo ratón se descartaban todas esas pulsaciones
+        // (incluido B, por lo que no se podía volver al modo tableta).
         if current_raw_x == self.last_raw_usb_x
             && current_raw_y == self.last_raw_usb_y
             && current_raw_pressure == self.last_raw_usb_pressure
-            {
-                return;
-            }
+            && raw_data.pen_buttons() == self.last_raw_usb_pen_buttons
+            && raw_data.tablet_buttons_as_binary_flags() == self.tablet_last_raw_pressed_buttons
+        {
+            return;
+        }
 
-            self.last_raw_usb_x = current_raw_x;
+        self.last_raw_usb_x = current_raw_x;
         self.last_raw_usb_y = current_raw_y;
         self.last_raw_usb_pressure = current_raw_pressure;
+        self.last_raw_usb_pen_buttons = raw_data.pen_buttons();
 
         self.emit_pen_events(raw_data);
         self.emit_tablet_events(raw_data);
@@ -249,6 +262,7 @@ impl DeviceDispatcher {
             if i == 12 {
                 if state == Self::PRESSED {
                     self.is_mouse_mode = !self.is_mouse_mode;
+                    self.mouse_resync = true;
                     println!(
                         "{}",
                         gettext(if self.is_mouse_mode {
@@ -368,6 +382,10 @@ impl DeviceDispatcher {
         .build()
     }
 
+    /// Un hueco así entre paquetes en modo ratón significa que el lápiz salió y
+    /// volvió: no convertir ese salto en un movimiento relativo enorme.
+    const MOUSE_REENTRY_GAP: std::time::Duration = std::time::Duration::from_millis(80);
+
     fn normalize_pressure_mode(raw_pressure: i32, threshold: i32, scaling: i32) -> i32 {
         let inverted_pressure = 1300 - raw_pressure;
         if inverted_pressure <= threshold { 0 } else { ((inverted_pressure - threshold) * scaling).clamp(0, 8191) }
@@ -419,7 +437,20 @@ impl DeviceDispatcher {
     fn raw_pen_abs_to_pen_abs_events(&mut self, x_axis: i32, y_axis: i32, pressure: i32, is_multimedia_area: bool) {
         if self.is_mouse_mode {
             // --- MODO RATÓN RELATIVO DINÁMICO ---
-            if self.last_x != 2048 && !is_multimedia_area {
+            // Re-sincronizar el punto de referencia tras cambiar de modo o cuando el
+            // lápiz vuelve a entrar en rango, en vez de saltar toda la distancia.
+            let now = std::time::Instant::now();
+            if self
+                .last_mouse_motion_at
+                .is_none_or(|at| now.duration_since(at) > Self::MOUSE_REENTRY_GAP)
+            {
+                self.mouse_resync = true;
+            }
+            self.last_mouse_motion_at = Some(now);
+
+            if self.mouse_resync {
+                self.mouse_resync = false;
+            } else if !is_multimedia_area {
 
                 let rel_x = ((x_axis - self.last_x) as f32 * self.mouse_area_scale * 12.0).round() as i32;
                 let rel_y = ((y_axis - self.last_y) as f32 * self.mouse_area_scale * 12.0).round() as i32;
@@ -439,15 +470,15 @@ impl DeviceDispatcher {
             let tx = x_axis;
             let ty = y_axis.clamp(0, 4095);
 
-            // CORRECCIÓN DEL FILTRO
-            if tx == self.last_raw_usb_x && ty == self.last_raw_usb_y && pressure == self.last_raw_usb_pressure {
+            // Nada ha cambiado para el lápiz: no re-emitir.
+            if tx == self.last_x && ty == self.last_y && pressure == self.last_pen_pressure {
                 return;
             }
 
             let dx = tx - self.last_x;
             let dy = ty - self.last_y;
             let max_gap = dx.abs().max(dy.abs());
-            let last_press = if self.last_raw_usb_pressure == -1 { pressure } else { self.last_raw_usb_pressure };
+            let last_press = if self.last_pen_pressure == -1 { pressure } else { self.last_pen_pressure };
             let d_press = pressure - last_press;
 
             let allowed_step = 8;
@@ -474,10 +505,9 @@ impl DeviceDispatcher {
                                           InputEvent::new(EventType::ABSOLUTE, AbsoluteAxisType::ABS_PRESSURE.0, pressure),
             ]);
 
-            // Guardar el estado usando los nombres correctos
-            self.last_raw_usb_x = tx;
-            self.last_raw_usb_y = ty;
-            self.last_raw_usb_pressure = pressure;
+            // Estado del lápiz (presión normalizada), separado de los valores RAW
+            // last_raw_usb_* que usa el filtro de descarte.
+            self.last_pen_pressure = pressure;
             self.last_x = tx;
             self.last_y = ty;
         }
@@ -526,7 +556,10 @@ impl DeviceDispatcher {
                 let target_click = if id == 6 { Key::BTN_RIGHT } else { Key::BTN_MIDDLE };
                 let _ = self.virtual_mouse.emit(&[InputEvent::new(EventType::KEY, target_click.code(), state)]);
             } else {
-                if let Some(keys) = self.tablet_button_id_to_key_code_map.get(&id) {
+                // Modo tableta: botones del lápiz -> BTN_STYLUS / BTN_STYLUS2.
+                // (Antes se buscaban en el mapa de botones de la TABLETA y se emitían
+                // teclas no registradas en el lápiz virtual, por lo que no hacían nada.)
+                if let Some(keys) = self.pen_button_id_to_key_code_map.get(&id) {
                     for key in keys {
                         let _ = self.virtual_pen.emit(&[InputEvent::new(EventType::KEY, key.code(), state)]);
                     }
